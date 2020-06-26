@@ -2,30 +2,6 @@
 
 `aws-okta` allows you to authenticate with AWS using your Okta credentials.
 
-⚠️ As per [#278](https://github.com/segmentio/aws-okta/issues/278), development and maintenance of `aws-okta` is halted. If you're not already using it, now would be a bad time to start. ⚠️
-
-## Installing
-
-[See the wiki for more installation options.](https://github.com/segmentio/aws-okta/wiki/Installation)
-
-### MacOS
-
-You can install with `brew`:
-
-```bash
-$ brew install aws-okta
-```
-
-Shout-out to the fine maintainers of [the core formula](https://github.com/Homebrew/homebrew-core/blob/master/Formula/aws-okta.rb).
-
-### Linux
-
-[Download a binary from our release page](https://github.com/segmentio/aws-okta/releases), or [see the wiki for more installation options like deb/rpm packages](https://github.com/segmentio/aws-okta/wiki/Installation).
-
-### Windows
-
-See [docs/windows.md](docs/windows.md) for information on getting this working with Windows.
-
 ## Usage
 
 ### Adding Okta credentials
@@ -49,30 +25,20 @@ $ aws-okta help exec
 exec will run the command specified with aws credentials set in the environment
 
 Usage:
-  aws-okta exec <profile> -- <command>
+  aws-okta exec <profile> -- <command> [flags]
 
 Flags:
+  -r, --assume-role-arn string     Role arn to assume, overrides arn in profile
   -a, --assume-role-ttl duration   Expiration time for assumed role (default 1h0m0s)
   -h, --help                       help for exec
   -t, --session-ttl duration       Expiration time for okta role session (default 1h0m0s)
 
 Global Flags:
-  -b, --backend string   Secret backend to use [kwallet secret-service file] (default "file")
-  -d, --debug            Enable debug logging
-```
-
-### Exec for EKS and Kubernetes
-
-`aws-okta` can also be used to authenticate `kubectl` to your AWS EKS cluster. Assuming you have [installed `kubectl`](https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html), [setup your kubeconfig](https://docs.aws.amazon.com/eks/latest/userguide/create-kubeconfig.html) and [installed `aws-iam-authenticator`](https://docs.aws.amazon.com/eks/latest/userguide/configure-kubectl.html), you can now access your EKS cluster with `kubectl`. Note that on a new cluster, your Okta CLI user needs to be using the same assumed role as the one who created the cluster. Otherwise, your cluster needs to have been configured to allow your assumed role.
-
-```bash
-$ aws-okta exec <profile> -- kubectl version --short
-```
-
-Likewise, most Kubernetes projects should work, like Helm and Ark.
-
-```bash
-$ aws-okta exec <profile> -- helm version --short
+  -b, --backend string              Secret backend to use [keychain pass file]
+  -d, --debug                       Enable debug logging
+      --mfa-duo-device string       Device to use phone1, phone2, u2f or token (default "phone1")
+      --mfa-factor-type string      MFA Factor Type to use (eg push, token:software:totp)
+      --mfa-provider string         MFA Provider to use (eg DUO, OKTA, GOOGLE)
 ```
 
 ### Configuring your aws config
@@ -199,14 +165,6 @@ For Linux / Ubuntu add the following to your bash config / zshrc etc:
 export AWS_OKTA_BACKEND=secret-service
 ```
 
-## --session-cache-single-item aka AWS_OKTA_SESSION_CACHE_SINGLE_ITEM (alpha)
-
-This flag enables a new secure session cache that stores all sessions in the same keyring item. For macOS users, this means drastically fewer authorization prompts when upgrading or running local builds.
-
-No provision is made to migrate sessions between session caches.
-
-Implemented in [https://github.com/segmentio/aws-okta/issues/146](#146).
-
 ## Local Development
 
 If you're developing in Linux, you'll need to get `libusb`. For Ubuntu, install the libusb-1.0-0-dev or use the `Dockerfile` provided in the repo.
@@ -223,10 +181,6 @@ Pushing a new tag will cause Circle to automatically create and push a linux rel
 $ export CIRCLE_TAG=`git describe --tags`
 $ make release-mac
 ```
-
-## Analytics
-
-`aws-okta` includes some usage analytics code which Segment uses internally for tracking usage of internal tools.  This analytics code is turned off by default, and can only be enabled via a linker flag at build time, which we do not set for public github releases.
 
 ## Internals
 

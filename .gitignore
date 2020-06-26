@@ -1,5 +1,6 @@
 *~
 *.sw[a-z]
+.idea/
 dist/
 packagecloud.conf.json
 aws-okta

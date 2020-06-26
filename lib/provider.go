@@ -37,9 +37,6 @@ type ProviderOptions struct {
 	Profiles           Profiles
 	MFAConfig          MFAConfig
 	AssumeRoleArn      string
-	// if true, use store_singlekritem SessionCache (new)
-	// if false, use store_kritempersession SessionCache (old)
-	SessionCacheSingleItem bool
 }
 
 func (o ProviderOptions) Validate() error {
@@ -89,15 +86,7 @@ func NewProvider(k keyring.Keyring, profile string, opts ProviderOptions) (*Prov
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
-	var sessions SessionCacheInterface
-
-	if opts.SessionCacheSingleItem {
-		log.Debugf("Using SingleKrItemStore")
-		sessions = &sessioncache.SingleKrItemStore{k}
-	} else {
-		log.Debugf("Using KrItemPerSessionStore")
-		sessions = &sessioncache.KrItemPerSessionStore{k}
-	}
+	sessions := &sessioncache.SingleKrItemStore{k}
 
 	return &Provider{
 		ProviderOptions: opts,
@@ -109,7 +98,6 @@ func NewProvider(k keyring.Keyring, profile string, opts ProviderOptions) (*Prov
 }
 
 func (p *Provider) Retrieve() (credentials.Value, error) {
-
 	window := p.ExpiryWindow
 	if window == 0 {
 		window = time.Minute * 5
@@ -158,10 +146,30 @@ func (p *Provider) Retrieve() (credentials.Value, error) {
 	// roles directly.
 	if p.profile != source {
 		if role, ok := p.profiles[p.profile]["role_arn"]; ok {
-			var err error
-			creds, err = p.assumeRoleFromSession(creds, role)
-			if err != nil {
-				return credentials.Value{}, err
+			key := sessioncache.KeyWithRoleARN{
+				ProfileName: source,
+				ProfileConf: profileConf,
+				Duration:    p.SessionDuration,
+				ProfileARN:  p.AssumeRoleArn,
+				AccessKeyId: aws.StringValue(creds.AccessKeyId),
+				RoleARN:     role,
+			}
+			if cachedSession, err := p.sessions.Get(key); err != nil {
+				var err error
+				creds, err = p.assumeRoleFromSession(creds, role)
+				if err != nil {
+					return credentials.Value{}, err
+				}
+
+				newSession := sessioncache.Session{
+					Name:        p.roleSessionName(),
+					Credentials: creds,
+				}
+				if err = p.sessions.Put(key, &newSession); err != nil {
+					return credentials.Value{}, xerrors.Errorf("putting to sessioncache", err)
+				}
+			} else {
+				creds = cachedSession.Credentials
 			}
 
 			log.Debugf("using role %s expires in %s",
@@ -351,12 +359,12 @@ func (p *Provider) GetRoleARNWithRegion(creds credentials.Value) (string, error)
 	}
 	client := sts.New(aws_session.New(&config))
 
-	indentity, err := client.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	identity, err := client.GetCallerIdentity(&sts.GetCallerIdentityInput{})
 	if err != nil {
 		log.Errorf("Error getting caller identity: %s", err.Error())
 		return "", err
 	}
-	arn := *indentity.Arn
+	arn := *identity.Arn
 	return arn, nil
 }
 

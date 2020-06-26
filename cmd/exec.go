@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-
+	"github.com/segmentio/aws-okta/server"
 	log "github.com/sirupsen/logrus"
 
 	"os"
@@ -12,8 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/99designs/keyring"
-	analytics "github.com/segmentio/analytics-go"
 	"github.com/segmentio/aws-okta/lib"
 	"github.com/spf13/cobra"
 )
@@ -171,52 +169,20 @@ func execRun(cmd *cobra.Command, args []string) error {
 		AssumeRoleArn:      assumeRoleARN,
 	}
 
-	var allowedBackends []keyring.BackendType
-	if backend != "" {
-		allowedBackends = append(allowedBackends, keyring.BackendType(backend))
-	}
-
-	kr, err := lib.OpenKeyring(allowedBackends)
+	uri, token, err := server.StartEcsCredentialServer(profile, backend, opts)
 	if err != nil {
-		return err
+		return fmt.Errorf("Failed to start credential server: %w", err)
 	}
-
-	if analyticsEnabled && analyticsClient != nil {
-		analyticsClient.Enqueue(analytics.Track{
-			UserId: username,
-			Event:  "Ran Command",
-			Properties: analytics.NewProperties().
-				Set("backend", backend).
-				Set("aws-okta-version", version).
-				Set("profile", profile).
-				Set("command", "exec"),
-		})
-	}
-
-	opts.SessionCacheSingleItem = flagSessionCacheSingleItem
-
-	p, err := lib.NewProvider(kr, profile, opts)
-	if err != nil {
-		return err
-	}
-
-	creds, err := p.Retrieve()
-	if err != nil {
-		return err
-	}
-
-	roleARN, err := p.GetRoleARNWithRegion(creds)
-	if err != nil {
-		return err
-	}
-	role := strings.Split(roleARN, "/")[1]
 
 	env := environ(os.Environ())
 	env.Unset("AWS_ACCESS_KEY_ID")
 	env.Unset("AWS_SECRET_ACCESS_KEY")
+	env.Unset("AWS_SESSION_TOKEN")
+	env.Unset("AWS_SECURITY_TOKEN")
 	env.Unset("AWS_CREDENTIAL_FILE")
 	env.Unset("AWS_DEFAULT_PROFILE")
 	env.Unset("AWS_PROFILE")
+	env.Unset("AWS_SDK_LOAD_CONFIG")
 	env.Unset("AWS_OKTA_PROFILE")
 
 	if region, ok := profiles[profile]["region"]; ok {
@@ -224,18 +190,9 @@ func execRun(cmd *cobra.Command, args []string) error {
 		env.Set("AWS_REGION", region)
 	}
 
-	env.Set("AWS_ACCESS_KEY_ID", creds.AccessKeyID)
-	env.Set("AWS_SECRET_ACCESS_KEY", creds.SecretAccessKey)
 	env.Set("AWS_OKTA_PROFILE", profile)
-	env.Set("AWS_OKTA_ASSUMED_ROLE_ARN", roleARN)
-	env.Set("AWS_OKTA_ASSUMED_ROLE", role)
-
-	if creds.SessionToken != "" {
-		env.Set("AWS_SESSION_TOKEN", creds.SessionToken)
-		env.Set("AWS_SECURITY_TOKEN", creds.SessionToken)
-	}
-
-	env.Set("AWS_OKTA_SESSION_EXPIRATION", fmt.Sprintf("%d", p.GetExpiration().Unix()))
+	env.Set("AWS_CONTAINER_CREDENTIALS_FULL_URI", uri)
+	env.Set("AWS_CONTAINER_AUTHORIZATION_TOKEN", token)
 
 	ecmd := exec.Command(command, commandArgs...)
 	ecmd.Stdin = os.Stdin

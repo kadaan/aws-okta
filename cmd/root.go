@@ -1,18 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"strconv"
-
-	"errors"
 
 	"github.com/99designs/keyring"
-	analytics "github.com/segmentio/analytics-go"
 	"github.com/segmentio/aws-okta/lib"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/xerrors"
 )
 
 // Errors returned from frontend commands
@@ -35,14 +31,8 @@ var (
 	mfaConfig                  lib.MFAConfig
 	debug                      bool
 	version                    string
-	analyticsWriteKey          string
-	analyticsEnabled           bool
-	analyticsClient            analytics.Client
 	username                   string
-	flagSessionCacheSingleItem bool
 )
-
-const envSessionCacheSingleItem = "AWS_OKTA_SESSION_CACHE_SINGLE_ITEM"
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -51,15 +41,12 @@ var RootCmd = &cobra.Command{
 	SilenceUsage:      true,
 	SilenceErrors:     true,
 	PersistentPreRunE: prerunE,
-	PersistentPostRun: postrun,
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(vers string, writeKey string) {
 	version = vers
-	analyticsWriteKey = writeKey
-	analyticsEnabled = analyticsWriteKey != ""
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		switch err {
@@ -83,37 +70,7 @@ func prerunE(cmd *cobra.Command, args []string) error {
 		log.SetLevel(log.DebugLevel)
 	}
 
-	if !cmd.Flags().Lookup("session-cache-single-item").Changed {
-		val, ok := os.LookupEnv(envSessionCacheSingleItem)
-		if ok {
-			valb, err := strconv.ParseBool(val)
-			if err != nil {
-				return xerrors.Errorf("couldn't parse as bool: %s: %w", val, err)
-			}
-			flagSessionCacheSingleItem = valb
-		}
-	}
-
-	if analyticsEnabled {
-		// set up analytics client
-		analyticsClient, _ = analytics.NewWithConfig(analyticsWriteKey, analytics.Config{
-			BatchSize: 1,
-		})
-
-		usr := os.Getenv("USER")
-		analyticsClient.Enqueue(analytics.Identify{
-			UserId: usr,
-			Traits: analytics.NewTraits().
-				Set("aws-okta-version", version),
-		})
-	}
 	return nil
-}
-
-func postrun(cmd *cobra.Command, args []string) {
-	if analyticsEnabled && analyticsClient != nil {
-		analyticsClient.Close()
-	}
 }
 
 func init() {
@@ -126,7 +83,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&mfaConfig.DuoDevice, "mfa-duo-device", "", "phone1", "Device to use phone1, phone2, u2f or token")
 	RootCmd.PersistentFlags().StringVarP(&backend, "backend", "b", "", fmt.Sprintf("Secret backend to use %s", backendsAvailable))
 	RootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
-	RootCmd.PersistentFlags().BoolVarP(&flagSessionCacheSingleItem, "session-cache-single-item", "", false, fmt.Sprintf("(alpha) Enable single-item session cache; aka %s", envSessionCacheSingleItem))
 }
 
 func updateMfaConfig(cmd *cobra.Command, profiles lib.Profiles, profile string, config *lib.MFAConfig) {
